@@ -291,7 +291,8 @@ def permittivity_1D_Maxwellian_lite(omega, kWave, vth, wp):
     # explicitly removing factor of sqrt(2) to be consistent with Froula
     alpha = np.sqrt(2) * wp / (kWave * vth)
     # The dimensionless phase velocity of the propagating EM wave.
-    zeta = omega / (kWave * vth)
+    zeta = (omega / (kWave * vth)).to(u.dimensionless_unscaled)
+    #zeta = omega / (kWave * vth)
     return -0.5 * (alpha**2) * plasma_dispersion_func_deriv(zeta)
 
 
