@@ -287,7 +287,7 @@ def permittivity_1D_Maxwellian_lite(omega, kWave, vth, wp):
     np.complex128(-6.72794...e-08+5.76024...e-07j)
     """
 
-     from astropy import units as u
+    from astropy import units as u
     import numpy as np
     from plasmapy.formulary import plasma_frequency
 
