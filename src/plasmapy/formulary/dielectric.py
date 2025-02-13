@@ -287,13 +287,36 @@ def permittivity_1D_Maxwellian_lite(omega, kWave, vth, wp):
     np.complex128(-6.72794...e-08+5.76024...e-07j)
     """
 
+    from astropy import units as u
+
+# Ensure wp, kWave, vth, and omega are Astropy Quantities
+    wp = u.Quantity(wp, u.rad/u.s)  # Plasma frequency
+    kWave = u.Quantity(kWave, 1/u.m)  # Wavenumber
+    vth = u.Quantity(vth, u.m/u.s)  # Thermal velocity
+    omega = u.Quantity(omega, u.rad/u.s)  # Angular frequency
+
+# Scattering parameter alpha (removing factor of sqrt(2) to match Froula)
+    alpha = np.sqrt(2) * wp / (kWave * vth)
+
+# Compute dimensionless phase velocity zeta
+    zeta = omega / (kWave * vth)
+
+# Convert to dimensionless if it has units
+    if isinstance(zeta, u.Quantity):
+        zeta = zeta.to(u.dimensionless_unscaled).value
+
+    return -0.5 * (alpha**2) * plasma_dispersion_func_deriv(zeta)
+
+
     # scattering parameter alpha.
     # explicitly removing factor of sqrt(2) to be consistent with Froula
-    alpha = np.sqrt(2) * wp / (kWave * vth)
+
+    ##alpha = np.sqrt(2) * wp / (kWave * vth)
+
     # The dimensionless phase velocity of the propagating EM wave.
-    zeta = (omega / (kWave * vth)).to(u.dimensionless_unscaled)
-    #zeta = omega / (kWave * vth)
-    return -0.5 * (alpha**2) * plasma_dispersion_func_deriv(zeta)
+    
+    ##zeta = omega / (kWave * vth)
+    ##return -0.5 * (alpha**2) * plasma_dispersion_func_deriv(zeta)
 
 
 @bind_lite_func(permittivity_1D_Maxwellian_lite)
