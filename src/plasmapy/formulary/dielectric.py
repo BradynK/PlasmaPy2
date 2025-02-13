@@ -287,63 +287,15 @@ def permittivity_1D_Maxwellian_lite(omega, kWave, vth, wp):
     np.complex128(-6.72794...e-08+5.76024...e-07j)
     """
 
-    from astropy import units as u
-    import numpy as np
-    from plasmapy.formulary import plasma_frequency
-
-# Ensure all parameters have correct units
-    wp = u.Quantity(wp, u.rad/u.s)  # Plasma frequency must be in rad/s
-    kWave = u.Quantity(kWave, 1/u.m)  # Wavenumber in 1/m
-    vth = u.Quantity(vth, u.m/u.s)  # Thermal velocity in m/s
-
-# Convert omega to cycles per second (Hz equivalent) to remove 'rad'
-    omega = u.Quantity(omega, u.rad/u.s).to(1/u.s)
-
-# Debugging: Print units before computation
-    print("\n--- Variable Units Before Computation ---")
-    print(f"wp: {wp}, units: {wp.unit}")
-    print(f"omega: {omega}, units: {omega.unit}")
-    print(f"kWave: {kWave}, units: {kWave.unit}")
-    print(f"vth: {vth}, units: {vth.unit}")
-
-# Scattering parameter alpha (removing factor of sqrt(2) to match Froula)
-    alpha = np.sqrt(2) * wp / (kWave * vth)
-
-# Compute the dimensionless phase velocity zeta
-    zeta = omega / (kWave * vth)
-
-# Debugging: Print zeta before conversion
-    print(f"\n--- Zeta Before Conversion ---")
-    print(f"zeta: {zeta}, units: {zeta.unit}")
-
-# Ensure zeta is dimensionless
-    if isinstance(zeta, u.Quantity):
-        zeta_value = zeta.to(u.dimensionless_unscaled).value  # Convert to a pure number
-        zeta_unit = zeta.to(u.dimensionless_unscaled).unit  # Extract final unit
-    else:
-        zeta_value = zeta
-        zeta_unit = "N/A (Already a pure number)"
-
-# Debugging: Print zeta after conversion
-    print(f"\n--- Zeta After Conversion ---")
-    print(f"zeta value: {zeta_value}")
-    print(f"Final zeta unit: {zeta_unit}")
-
-    return -0.5 * (alpha**2) * plasma_dispersion_func_deriv(zeta_value)
-
-
-
-
-
+    
     # scattering parameter alpha.
     # explicitly removing factor of sqrt(2) to be consistent with Froula
-
-    ##alpha = np.sqrt(2) * wp / (kWave * vth)
+    
+    alpha = np.sqrt(2) * wp / (kWave * vth)
 
     # The dimensionless phase velocity of the propagating EM wave.
-    
-    ##zeta = omega / (kWave * vth)
-    ##return -0.5 * (alpha**2) * plasma_dispersion_func_deriv(zeta)
+    zeta = omega / (kWave * vth)
+    return -0.5 * (alpha**2) * plasma_dispersion_func_deriv(zeta)
 
 
 @bind_lite_func(permittivity_1D_Maxwellian_lite)
