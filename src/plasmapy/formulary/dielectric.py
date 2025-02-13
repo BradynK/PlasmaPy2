@@ -288,15 +288,20 @@ def permittivity_1D_Maxwellian_lite(omega, kWave, vth, wp):
     """
 
     from astropy import units as u
+    import numpy as np
+    from plasmapy.formulary import plasma_frequency
 
 # Ensure all parameters have correct units
-    wp = u.Quantity(wp, u.Hz)  # Plasma frequency (should be in Hz, NOT rad/s)
-    kWave = u.Quantity(kWave, 1/u.m)  # Wavenumber
-    vth = u.Quantity(vth, u.m/u.s)  # Thermal velocity
+    wp = u.Quantity(wp, u.rad/u.s)  # Plasma frequency must be in rad/s
+    kWave = u.Quantity(kWave, 1/u.m)  # Wavenumber in rad/m
+    vth = u.Quantity(vth, u.m/u.s)  # Thermal velocity in m/s
+    omega = u.Quantity(omega, u.rad/u.s)  # Ensure omega is in rad/s
 
-# Convert omega from angular frequency (rad/s) to regular frequency (Hz)
-    omega = u.Quantity(omega, u.rad/u.s)  # Ensure omega has units
-    omega = omega.to(u.Hz, equivalencies=[(u.cy/u.s, u.Hz)])  # Convert to Hz
+# Debugging: Print the units of all variables before proceeding
+    print(f"wp: {wp}, units: {wp.unit}")
+    print(f"omega: {omega}, units: {omega.unit}")
+    print(f"kWave: {kWave}, units: {kWave.unit}")
+    print(f"vth: {vth}, units: {vth.unit}")
 
 # Scattering parameter alpha (removing factor of sqrt(2) to match Froula)
     alpha = np.sqrt(2) * wp / (kWave * vth)
@@ -304,11 +309,18 @@ def permittivity_1D_Maxwellian_lite(omega, kWave, vth, wp):
 # Compute the dimensionless phase velocity zeta
     zeta = omega / (kWave * vth)
 
+# Debugging: Print zeta before conversion
+    print(f"zeta before conversion: {zeta}, units: {zeta.unit}")
+
 # Ensure zeta is dimensionless
     if isinstance(zeta, u.Quantity):
-        zeta = zeta.to(u.dimensionless_unscaled).value  # Extract numerical value
+        zeta = zeta.to(u.dimensionless_unscaled).value
+
+# Debugging: Print zeta after conversion
+    print(f"zeta after conversion: {zeta} (dimensionless)")
 
     return -0.5 * (alpha**2) * plasma_dispersion_func_deriv(zeta)
+
 
 
 
