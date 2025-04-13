@@ -21,7 +21,7 @@ from lmfit import Model
 from numba import jit
 from typing import List, Tuple, Union
 
-from plasmapy.formulary.dielectric import fast_permittivity_1D_Maxwellian
+from plasmapy.formulary.dielectric_fast import fast_permittivity_1D_Maxwellian
 from plasmapy.formulary.parameters import fast_plasma_frequency, fast_thermal_speed
 from plasmapy.particles import Particle, particle_mass
 from plasmapy.utils.decorators import validate_quantities
