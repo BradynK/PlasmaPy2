@@ -36,9 +36,9 @@ from plasmapy.utils.exceptions import (
     RelativityWarning,
 )
 
-try:
-    from plasmapy.utils import pytest_helpers
-except ModuleNotFoundError:
+#try:
+    #from plasmapy.utils import pytest_helpers
+#except ModuleNotFoundError:
     # pytest is not a hard dependency, so only import pytest_helpers if pytest
     # is installed
-    pass
+    #pass
