@@ -434,6 +434,24 @@ def spectral_density_arbdist(
     inner_range=0.1,
     inner_frac=0.8,
 ):
+
+    from plasmapy.particles import Particle
+    from typing import List, Union
+
+    # --- Condition ion_species ---
+    if isinstance(ion_species, (str, Particle)):
+        ion_species = [ion_species]
+
+    if len(ion_species) == 0:
+        raise ValueError("At least one ion species needs to be defined.")
+
+    # Convert all entries to Particle instances
+    ion_species = [
+        Particle(ion) if isinstance(ion, str) else ion
+        for ion in ion_species
+    ]
+
+    ion_species: List[Particle] 
     
     if efract is None:
         efract = torch.ones(1)
