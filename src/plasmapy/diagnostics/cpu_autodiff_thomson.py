@@ -217,7 +217,8 @@ def fast_spectral_density_arbdist(
     scatter_vec=torch.tensor([0, 1, 0]),
     scattered_power=True,
     inner_range=0.1,
-    inner_frac=0.8
+    inner_frac=0.8,
+    return_chi = False
 ):
 
     # Ensure unit vectors are normalized
@@ -413,7 +414,9 @@ def fast_spectral_density_arbdist(
     # Normalize result to have integral 1
     Skw = Skw / torch.trapz(Skw, wavelengths)
 
-    return torch.mean(alpha), Skw
+    if return_chi:
+        return torch.mean(alpha), Skw, chiE, chiI
+    return torch.mean(alpha), Skw 
 
 def spectral_density_arbdist(
     wavelengths,
