@@ -436,6 +436,7 @@ def spectral_density_arbdist(
     scattered_power=False,
     inner_range=0.1,
     inner_frac=0.8,
+    returch_chi = False
 ):
 
     from plasmapy.particles import Particle
@@ -504,5 +505,6 @@ def spectral_density_arbdist(
         scatter_vec,
         scattered_power,
         inner_range,
-        inner_frac
+        inner_frac,
+        return_chi = return_chi
         )
