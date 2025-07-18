@@ -254,6 +254,7 @@ def fast_spectral_density_arbdist(
     scattered_power=False,
     inner_range=0.1,
     inner_frac=0.8,
+    return_chi = False
 ) -> Tuple[Union[np.floating, np.ndarray], np.ndarray]:
     
     # Ensure unit vectors are normalized
