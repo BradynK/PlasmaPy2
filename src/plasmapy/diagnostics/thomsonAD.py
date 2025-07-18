@@ -255,7 +255,10 @@ def fast_spectral_density_arbdist(
     inner_range=0.1,
     inner_frac=0.8,
     return_chi = False
-) -> Tuple[Union[np.floating, np.ndarray], np.ndarray]:
+) -> Union[
+    Tuple[torch.Tensor, torch.Tensor],
+    Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+]:
     
     # Ensure unit vectors are normalized
     probe_vec = probe_vec / np.linalg.norm(probe_vec)
@@ -471,8 +474,10 @@ def fast_spectral_density_arbdist(
 
     # print("alpha:", np.mean(alpha))
     # print("Skw:", Skw)
-
-    return np.mean(alpha), Skw
+    if return_chi:
+        return toch.mean(alpha), Skw, chiE, chiI
+    return toch.mean(alpha), Skw
+    
     
 
 
