@@ -498,7 +498,11 @@ def spectral_density_arbdist(
     scattered_power=False,
     inner_range=0.1,
     inner_frac=0.8,
-) -> Tuple[Union[np.floating, np.ndarray], np.ndarray]:
+    return_chi: bool = False,   # <-- NEW
+    ) -> Union[
+    Tuple[np.floating, np.ndarray],
+    Tuple[np.floating, np.ndarray, np.ndarray, np.ndarray]
+]:
     
     if efract is None:
         efract = np.ones(1)
@@ -564,7 +568,8 @@ def spectral_density_arbdist(
         scatter_vec,
         scattered_power,
         inner_range,
-        inner_frac
+        inner_frac,
+        return_chi=return_chi
         )
     
     
