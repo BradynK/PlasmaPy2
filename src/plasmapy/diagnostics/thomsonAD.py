@@ -474,11 +474,15 @@ def fast_spectral_density_arbdist(
     # Normalize result to have integral 1
     Skw = Skw / np.trapz(Skw, wavelengths)
 
+    if not torch.is_tensor(alpha):
+        alpha = torch.tensor(alpha, dtype=torch.float64)
+    alpha_mean = torch.mean(alpha)
+
     # print("alpha:", np.mean(alpha))
     # print("Skw:", Skw)
     if return_chi:
-        return torch.mean(alpha), Skw, chiE, chiI
-    return torch.mean(alpha), Skw
+        return alpha_mean, Skw, chiE, chiI
+    return alpha_mean, Skw
     
     
 
