@@ -477,8 +477,8 @@ def fast_spectral_density_arbdist(
     # print("alpha:", np.mean(alpha))
     # print("Skw:", Skw)
     if return_chi:
-        return toch.mean(alpha), Skw, chiE, chiI
-    return toch.mean(alpha), Skw
+        return torch.mean(alpha), Skw, chiE, chiI
+    return torch.mean(alpha), Skw
     
     
 
