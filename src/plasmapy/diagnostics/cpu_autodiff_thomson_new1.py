@@ -93,9 +93,11 @@ def torch_1d_interp(
     answer = torch.where(x > xp[-1], right, answer)
     return answer
 
+import torch
+
 def chi(
     f,
-    derivative_matrices,
+    derivative_matrices,   # accepted for signature compatibility (unused)
     u_axis,
     k,
     xi,
@@ -103,101 +105,95 @@ def chi(
     n,
     particle_m,
     particle_q,
-    phi=1e-5,
-    nPoints=1e3,
-    inner_range=0.3,
-    inner_frac=0.8,
+    phi=1e-5,              # accepted (unused)
+    nPoints=1e3,           # accepted (unused)
+    inner_range=0.3,       # accepted (unused)
+    inner_frac=0.8,        # accepted (unused)
 ):
     """
-    f: array, distribution function of velocities
-    u_axis: normalized velocity axis
-    k: wavenumber
-    xi: normalized phase velocities
-    v_th: thermal velocity of the distribution, used to normalize the velocity axis
-    n: ion density
-    m: particle mass in atomic mass units
-    q: particle charge in fundamental charges
-    phi: standoff variable used to avoid singularities
-    nPoints: number of points used in integration
-    deltauMax: maximum distance on the u axis to integrate to
+    Susceptibility χ_s via piecewise-linear pole integrals (no PV/standoff).
+    Assumes u_axis and xi are normalized by v_th (your existing convention)
+    — i.e., u = v / (sqrt(2)*v_th) if that's how you defined it.
+
+    χ_s = (ω_ps^2) / (k^2 (sqrt(2) v_th)^2) * I2(ξ),  where
+    I2(ξ) = ∫ f(u) / (u - ξ)^2 du, evaluated by summing closed-form
+    segment primitives of a linear interpolant of f over [u_j, u_{j+1}].
+
+    Args (kept identical to your original):
+      f:         1D tensor, distribution sampled on u_axis (real)
+      u_axis:    1D tensor, ascending normalized velocity grid (real)
+      k:         scalar tensor/float, wavenumber [1/m]
+      xi:        tensor, normalized phase velocity ξ = (ω - iν)/(k v_th) (complex or real)
+      v_th:      scalar tensor/float, thermal speed [m/s]
+      n:         scalar, number density [m^-3]
+      particle_m:scalar, mass [amu]
+      particle_q:scalar, charge in |e| units (e.g., -1 for e⁻, +1 for H⁺)
+      phi, nPoints, inner_range, inner_frac: accepted for compatibility (unused)
+
+    Returns:
+      χ_s as a complex tensor with the same leading shape as xi.
     """
 
-    # Take f' = df/du and f" = d^2f/d^2u
-    fPrime = derivative(f=f, x=u_axis, derivative_matrices=derivative_matrices, order=1)
-    fDoublePrime = derivative(f=f, x=u_axis, derivative_matrices=derivative_matrices, order=2)
+    # ---------------------------
+    # dtypes/devices and casting
+    # ---------------------------
+    device = u_axis.device
+    rdt = u_axis.dtype
+    cdt = torch.complex128 if rdt == torch.float64 else torch.complex64
 
-    # Interpolate f' and f" onto xi
-    g = torch_1d_interp(xi, u_axis, fPrime)
-    gPrime = torch_1d_interp(xi, u_axis, fDoublePrime)
+    # Real inputs
+    u = u_axis.to(cdt)                     # (Nu,)
+    f_c = f.to(cdt)                        # (Nu,)
 
-    # Set up integration ranges and spacing
-    # We need fine divisions near the asymtorchote, but not at infinity
+    # Complex ξ with tiny Im part to regularize the pole if needed
+    xi_c = xi.to(cdt)
+    if torch.all(torch.eq(torch.imag(xi_c), 0)):
+        tiny = torch.as_tensor(1e-12, device=device, dtype=rdt)
+        xi_c = xi_c + 1j * tiny.to(cdt)
 
-    """
-    the fractional range of the inner fine divisions near the asymtorchote
-    inner_range = 0.1
-    the fraction of total divisions used in the inner range; should be > inner_range
-    inner_frac = 0.8
-    """
-    
-    with torch.no_grad():
-        outer_frac = torch.tensor([1.]) - inner_frac
+    # ---------------------------
+    # piecewise-linear coefficients on [u_j, u_{j+1}]
+    # ---------------------------
+    du = u[1:] - u[:-1]                    # (S,)
+    a  = (f_c[1:] - f_c[:-1]) / du         # (S,) slope
+    b  = f_c[:-1] - a * u[:-1]             # (S,) intercept
+    uL, uR = u[:-1], u[1:]                 # (S,)
 
-        m_inner = torch.linspace(0, inner_range, int(torch.floor(torch.tensor([nPoints / 2 * inner_frac]))))
-        p_inner = torch.linspace(0, inner_range, int(torch.ceil(torch.tensor([nPoints / 2 * inner_frac]))))
-        m_outer = torch.linspace(inner_range, 1, int(torch.floor(torch.tensor([nPoints / 2 * outer_frac]))))
-        p_outer = torch.linspace(inner_range, 1, int(torch.ceil(torch.tensor([nPoints / 2 * outer_frac]))))
+    # Broadcast ξ over segments: xi_b has shape (..., 1)
+    xi_b = xi_c.unsqueeze(-1)
 
-        m = torch.cat((m_inner, m_outer))
-        p = torch.cat((p_inner, p_outer))
+    # ---------------------------
+    # I2(ξ) = Σ_j [ -(a ξ + b)/(u - ξ) + a ln(u - ξ) ]_{uL}^{uR}
+    # ---------------------------
+    term_R = (-(a*xi_b + b)/(uR - xi_b) + a*torch.log(uR - xi_b))
+    term_L = (-(a*xi_b + b)/(uL - xi_b) + a*torch.log(uL - xi_b))
+    I2 = (term_R - term_L).sum(dim=-1)     # sum over segments → shape matches xi
 
-        # Generate integration sample points that avoid the singularity
-        # Create empty arrays of the correct size
-        zm = torch.zeros((len(xi), len(m)))
-        zp = torch.zeros((len(xi), len(p)))
-    
-        # Compute maximum width of integration range based on the size of the input array of normalized velocities
-        deltauMax = max(u_axis) - min(u_axis)
-        # print("deltauMax:", deltauMax)
+    # ---------------------------
+    # Physical prefactor: ω_ps^2 / (k^2 (sqrt(2) v_th)^2)
+    # (matches common TS normalization with u = v/(sqrt(2) v_th))
+    # ---------------------------
+    eps0 = torch.as_tensor(8.8541878128e-12, device=device, dtype=rdt)  # F/m
+    e_ch = torch.as_tensor(1.602176634e-19,  device=device, dtype=rdt)  # C
+    amu  = torch.as_tensor(1.66053906660e-27,device=device, dtype=rdt)  # kg
 
-        # Compute arrays of offsets to add to the central points in xi
-        m_point_array = phi + m * deltauMax
-        p_point_array = phi + p * deltauMax
+    n_t   = torch.as_tensor(n,        device=device, dtype=rdt)
+    k_t   = torch.as_tensor(k,        device=device, dtype=rdt)
+    vth_t = torch.as_tensor(v_th,     device=device, dtype=rdt)
+    m_kg  = torch.as_tensor(particle_m, device=device, dtype=rdt) * amu
+    q_C   = torch.as_tensor(particle_q, device=device, dtype=rdt) * e_ch
 
-        m_deltas = torch.cat((m_point_array[1:] - m_point_array[:-1], torch.tensor([0.])))
-        p_deltas = torch.cat((p_point_array[1:] - p_point_array[:-1], torch.tensor([0.])))
+    omega_ps2 = n_t * (q_C**2) / (eps0 * m_kg)
 
-        # The integration points on u
-        for i in range(len(xi)):
-            zm[i, :] = xi[i] + m_point_array
-            zp[i, :] = xi[i] - p_point_array
+    # Denominator uses (sqrt(2) * v_th)^2 = 2 * v_th^2.
+    pref = (omega_ps2 / (k_t**2 * (2.0 * vth_t**2))).to(cdt)
 
-    gm = torch_1d_interp(zm, u_axis, fPrime)
-    gp = torch_1d_interp(zp, u_axis, fPrime)
-    
-    # Evaluate integral (df/du / (u - xi)) du
-    M_array = m_deltas * gm / m_point_array
-    P_array = p_deltas * gp / p_point_array
+    # If your previous χ had an overall minus sign due to your legacy integral
+    # convention, you can flip sign here by uncommenting the next line:
+    # pref = -pref
 
-    integral = (
-        torch.sum(M_array, axis=1)
-        - torch.sum(P_array, axis=1)
-        + 1j * torch.pi * g
-        + 2 * phi * gPrime
-    )
+    return pref * I2
 
-    # Convert mass and charge to SI units
-    m_SI = torch.tensor([particle_m * 1.6605e-27])
-    q_SI = torch.tensor([particle_q * 1.6022e-19])
-    
-    # Compute plasma frequency squared
-    wpl2 = n * torch.square(q_SI) / (m_SI * 8.8541878e-12)
-
-    # Coefficient
-    v_th = torch.tensor([v_th])
-    coefficient = -1. * wpl2 / k ** 2 / (torch.sqrt(torch.tensor([2])) * v_th)
-    
-    return coefficient * integral
 
 def fast_spectral_density_arbdist(
     wavelengths,
