@@ -137,14 +137,13 @@ def chi(
 
 
     # Physical constants (SI)
-    eps0 = torch.tensor(8.8541878128e-12, dtype=torch.float64)
-    e_si = torch.tensor(1.602176634e-19,  dtype=torch.float64)   # Coulomb
-    amu  = torch.tensor(1.66053906660e-27, dtype=torch.float64)  # kg
-
-    # Species parameters in SI
-    m_si = m_amu * amu
-    q_si = q_e * e_si
-    omega_ps_sq = n * (q_si*q_si) / (m_si * eps0)  # scalar
+    # Convert mass and charge to SI units
+    m_SI = torch.tensor([particle_m * 1.6605e-27])
+    q_SI = torch.tensor([particle_q * 1.6022e-19])
+    
+    # Compute plasma frequency squared
+    
+    omega_ps_sq = n * torch.square(q_SI) / (m_SI * 8.8541878e-12)  # scalar
 
 
     # Piecewise-linear coefficients: f(u) ~= a_j u + b_j over [u_j, u_j+1]
