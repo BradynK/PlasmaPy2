@@ -107,7 +107,7 @@ def chi(
     phi = 1e-5, # offset, no longer used
     nPoints = 1e3, # no longer used
     inner_range = 0.3, # no longer used,
-    inner_fract = 0.8, # no longer used
+    inner_frac = 0.8, # no longer used
 ):
 
     """
