@@ -96,7 +96,7 @@ def torch_1d_interp(
 
 def chi(
     f, 
-    derivative_matrices, # no longer used with new approach
+    derivative_matrices, # ignored in Skolar method
     u_axis,
     k,
     xi, 
@@ -104,9 +104,9 @@ def chi(
     n, # number density in m^-3
     particle_m,
     particle_q,
-    phi = 1e-5, # offset, no longer used
+    phi = 1e-5, # offset for stability
     nPoints = 1e3, # no longer used
-    inner_range = 0.3, # no longer used,
+    inner_range = 0.3, # no longer used
     inner_frac = 0.8, # no longer used
 ):
 
@@ -127,53 +127,34 @@ def chi(
     Susceptibility calculation via Skolar's piecewise-linear method, in u-space.
 
     Normalization:
-      u = (v - u0) / (sqrt(2)*v_th),   xi = (omega - k*u0) / (sqrt(2)*k*v_th)
+      u = (v) / (sqrt(2)*v_th),   xi = (omega) / (sqrt(2)*k*v_th)
       chi = (omega_p^2 / (2 v_th^2 k^2)) * I2(xi),
       I2(xi) = integral[ f(u) / (u - xi + i*eps)^2 du ]
 
     Returns:
-      chi_s (complex tensor)
+      chi_s 
     """
 
+    # Piecewise-linear model of f(u) over each grid cell
+    # Approximate f(u) ~= a_j * u + b_j over each segment [uL_j, uR_j]
 
-    # Physical constants (SI)
-    # Convert mass and charge to SI units
-    m_SI = torch.tensor([particle_m * 1.6605e-27])
-    q_SI = torch.tensor([particle_q * 1.6022e-19])
+    # Divide the velocity grid to define the cells over which we approximate f(u)
+    uL = u_axis[:-1] # all elements except for the last one [u0, u1, ..., u_{n-1}]
+    uR = u_axis[1:] # all elements except for the first one [ u1, u2, ..., uN]
+    dU = uR -uL
+
+    # Defining f(u) at each grid point in order to calculate coefficients for interpolation
+    fL = f[:-1]
+    fR = f[1:]
+
+    # Coefficients used in f(u) = aj * u + bj for u in [uj, u_{j+1}] -- approximation over cell
+    a = (fR - fL) / dU
+    b = fL - a * uL 
+
+
+
+
     
-    # Compute plasma frequency squared
-    
-    omega_ps_sq = n * torch.square(q_SI) / (m_SI * 8.8541878e-12)  # scalar
-
-
-    # Piecewise-linear coefficients: f(u) ~= a_j u + b_j over [u_j, u_j+1]
-    u_grid = torch.as_tensor(u_axis, dtype=torch.float64)
-    du  = u_grid[1:] - u_grid[:-1]                   
-    a_j = (f[1:] - f[:-1]) / du             
-    b_j = f[:-1] - a_j * u_grid[:-1]
-
-    u_span = float((u_grid[-1] - u_grid[0]).abs()) # measuring the width of grid points for small offset
-    eps_small = max(1e-12, 1e-10 * max(1.0, u_span))
-    xi_c = xi.to(torch.complex128) + 1j * eps_small # this forms the complex pole and guarantees that we miss the singularity and automatically includes the imaginary term in chi
-
-    # Closed-form antiderivative at a cell edge:
-    # F(u_edge; xi) = - (a*xi + b)/(u_edge - xi) + a * log(u_edge - xi)
-    aC = a_j.to(torch.complex128)  # (Nu-1,)
-    bC = b_j.to(torch.complex128)
-
-    def F(u_edge_real: torch.Tensor) -> torch.Tensor:
-        ue = u_edge_real.to(torch.float64)[:, None]           
-        denom = ue - xi_c[None, :]                            
-        term1 = - (aC[:, None] * xi_c[None, :] + bC[:, None]) / denom
-        term2 =   aC[:, None] * torch.log(denom)
-        return term1 + term2                                  
-
-    F_right = F(u_grid[1:])
-    F_left  = F(u_grid[:-1])
-    I2_xi   = (F_right - F_left).sum(dim=0) # I_2 summation over grid axes as outlined in paper
-
-    pref = (omega_ps_sq / (2.0 * v_th * v_th)) / (k * k)  
-    chi_s = pref.to(torch.complex128) * I2_xi             
     return chi_s
 
 
