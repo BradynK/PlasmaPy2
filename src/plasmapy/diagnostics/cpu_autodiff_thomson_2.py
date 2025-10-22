@@ -147,11 +147,12 @@ def chi(
 
 
     # Piecewise-linear coefficients: f(u) ~= a_j u + b_j over [u_j, u_j+1]
-    du  = u[1:] - u[:-1]                   
+    u_grid = torch.as_tensor(u_axis, dtype=torch.float64)
+    du  = u_grid[1:] - u_grid[:-1]                   
     a_j = (f[1:] - f[:-1]) / du             
-    b_j = f[:-1] - a_j * u[:-1]
+    b_j = f[:-1] - a_j * u_grid[:-1]
 
-    u_span = float((u[-1] - u[0]).abs()) # measuring the width of grid points for small offset
+    u_span = float((u_grid[-1] - u_grid[0]).abs()) # measuring the width of grid points for small offset
     eps_small = max(1e-12, 1e-10 * max(1.0, u_span))
     xi_c = xi.to(torch.complex128) + 1j * eps_small # this forms the complex pole and guarantees that we miss the singularity and automatically includes the imaginary term in chi
 
@@ -167,8 +168,8 @@ def chi(
         term2 =   aC[:, None] * torch.log(denom)
         return term1 + term2                                  
 
-    F_right = F(u[1:])
-    F_left  = F(u[:-1])
+    F_right = F(u_grid[1:])
+    F_left  = F(u_grid[:-1])
     I2_xi   = (F_right - F_left).sum(dim=0) # I_2 summation over grid axes as outlined in paper
 
     pref = (omega_ps_sq / (2.0 * v_th * v_th)) / (k * k)  
