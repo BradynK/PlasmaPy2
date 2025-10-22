@@ -152,7 +152,28 @@ def chi(
     b = fL - a * uL 
 
 
+    # Let's calculate the integral according to Skolar
+    eps = phi * dU.mean() # small shift relative to cell spacing (want to approximate in limit eps --> 0)
+    zeta = (xi - 1j * eps).to(torch.complex128) # zeta is a complex quanitity 
 
+    # Initialize I2(zeta)
+    I2 = torch.zeros_like(zeta, dtype = torch.complex128)
+
+    #For complex-valued I2
+    uL_c = uL.to(torch.complex128)
+    uR_c = uR.to(torch.complex128)
+
+    #Loop over closed-form per-segment contributions to integral
+    for j in range(uL.shape[0]): #loop over all segments j
+        tR = (uR_c[j] - zeta)
+        tL = (uL_c[j] - zeta)
+
+        term1 = a[j] * (torch.log(tR) - torch.log(tL))
+        term2 = -(a[j] * zeta + b[j]) * (uR[j] - uL[j]) / (tR * tL)
+
+    # Add contribution from each cell
+        I2 += term1 + term2
+    
 
     
     return chi_s
