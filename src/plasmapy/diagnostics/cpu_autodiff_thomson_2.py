@@ -168,15 +168,32 @@ def chi(
         tR = (uR_c[j] - zeta)
         tL = (uL_c[j] - zeta)
 
+        # Analytic solutions from closed from approximation
         term1 = a[j] * (torch.log(tR) - torch.log(tL))
         term2 = -(a[j] * zeta + b[j]) * (uR[j] - uL[j]) / (tR * tL)
 
     # Add contribution from each cell
         I2 += term1 + term2
+
+    #Calculation coefficient and return chi
+    # Convert mass and charge to SI units (same style as before)
+    m_SI = torch.tensor([particle_m * 1.6605e-27])
+    q_SI = torch.tensor([particle_q * 1.6022e-19])
+
+    # Compute plasma frequency squared 
+    wpl2 = n * torch.square(q_SI) / (m_SI * 8.8541878e-12)
+
+    
+    v_th = torch.tensor([v_th])
+    coefficient = wpl2 / (2.0 * v_th**2 * k**2)
+
+ 
+    return coefficient.to(torch.complex128) * I2
+
     
 
     
-    return chi_s
+  
 
 
     
