@@ -104,7 +104,7 @@ def chi(
     n, # number density in m^-3
     particle_m,
     particle_q,
-    phi = 1e-5, # offset for stability
+    phi = 1e-10, # offset for stability
     nPoints = 1e3, # no longer used
     inner_range = 0.3, # no longer used
     inner_frac = 0.8, # no longer used
