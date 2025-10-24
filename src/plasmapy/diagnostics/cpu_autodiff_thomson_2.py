@@ -169,7 +169,7 @@ def chi(
         tL = (uL_c[j] - zeta)
 
         # Analytic solutions from closed from approximation
-        term1 = a[j] * (torch.log(tR) - torch.log(tL))
+        term1 = a[j] * torch.log(tR / tL)
         term2 = -(a[j] * zeta + b[j]) * (uR[j] - uL[j]) / (tR * tL)
 
     # Add contribution from each cell
