@@ -104,7 +104,7 @@ def chi(
     n, # number density in m^-3
     particle_m,
     particle_q,
-    phi = 1e-6, # offset for stability
+    phi = 1e-10, # offset for stability
     nPoints = 1e3, # no longer used
     inner_range = 0.3, # no longer used
     inner_frac = 0.8, # no longer used
@@ -154,7 +154,7 @@ def chi(
 
     # Let's calculate the integral according to Skolar
     eps = phi # small shift relative to cell spacing (want to approximate in limit eps --> 0)
-    zeta = (xi - 1j * eps).to(torch.complex128) # zeta is a complex quanitity 
+    zeta = (xi + 1j * eps).to(torch.complex128) # zeta is a complex quanitity 
 
     # Initialize I2(zeta)
     I2 = torch.zeros_like(zeta, dtype = torch.complex128)
@@ -189,7 +189,7 @@ def chi(
     coefficient = wpl2 / k ** 2 / (torch.sqrt(torch.tensor([2])) * v_th)
 
  
-    return coefficient.to(torch.complex128) * I2
+    return coefficient.to(torch.complex128) * (-I2)
 
     
 
