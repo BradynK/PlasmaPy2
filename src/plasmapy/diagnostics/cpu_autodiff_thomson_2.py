@@ -94,7 +94,7 @@ def torch_1d_interp(
     return answer
 
 
-def chi(
+def chi_working(
     f, 
     derivative_matrices, # ignored in Skolar method
     u_axis,
@@ -190,6 +190,67 @@ def chi(
 
  
     return coefficient.to(torch.complex128) * (-I2)
+
+
+
+import torch
+
+def chi(
+    f, 
+    derivative_matrices,  # ignored (Skolar method)
+    u_axis,
+    k,
+    xi, 
+    v_th,
+    n,             # number density [m^-3]
+    particle_m,    # mass [amu]
+    particle_q,    # charge [|e|]
+    phi = 1e-12,   # small imaginary shift
+    nPoints = 1e3,
+    inner_range = 0.3,
+    inner_frac = 0.8,
+):
+    """
+    Skolar-style susceptibility (identical math and sign to original cpu_autodiff_thomson_2-4.py)
+    """
+
+    # --- cell geometry ---
+    uL = u_axis[:-1]
+    uR = u_axis[1:]
+    dU = uR - uL
+    fL = f[:-1]
+    fR = f[1:]
+    a = (fR - fL) / dU
+    b = fL - a * uL
+
+    # --- complex vars ---
+    eps = phi
+    zeta = (xi + 1j * eps).to(torch.complex128).unsqueeze(1)  # (B,1)
+
+    uL_c = uL.to(torch.complex128).unsqueeze(0)  # (1,M)
+    uR_c = uR.to(torch.complex128).unsqueeze(0)
+    dU_c = dU.to(torch.complex128).unsqueeze(0)
+    a_c = a.to(torch.complex128).unsqueeze(0)
+    b_c = b.to(torch.complex128).unsqueeze(0)
+
+    # --- denominators (broadcasted) ---
+    tR = uR_c - zeta  # (B,M)
+    tL = uL_c - zeta
+
+    # --- analytic terms ---
+    term1 = a_c * torch.log(tR / tL)
+    term2 = -(a_c * zeta + b_c) * (uR_c - uL_c) / (tR * tL)
+    I2 = (term1 + term2).sum(dim=1)
+
+    # --- identical coefficient & sign as original ---
+    m_SI = torch.tensor([particle_m * 1.6605e-27], dtype=torch.float64)
+    q_SI = torch.tensor([particle_q * 1.6022e-19], dtype=torch.float64)
+    wpl2 = n * torch.square(q_SI) / (m_SI * 8.8541878e-12)
+    v_th_t = torch.tensor([v_th], dtype=torch.float64)
+    coefficient = wpl2 / k**2 / (torch.sqrt(torch.tensor([2.0])) * v_th_t)
+
+    return coefficient.to(torch.complex128) * (-I2)
+
 
     
 
