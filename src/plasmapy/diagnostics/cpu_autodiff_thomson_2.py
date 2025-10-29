@@ -195,7 +195,7 @@ def chi_working(
 
 import torch
 
-def chi_faster_working(
+def chi(
     f, 
     derivative_matrices,  # ignored (Skolar method)
     u_axis,
@@ -252,134 +252,6 @@ def chi_faster_working(
     return coefficient.to(torch.complex128) * (-I2)
 
 
-
-
-def chi(
-    f, 
-    derivative_matrices,  # ignored (Skolar method)
-    u_axis,
-    k,
-    xi, 
-    v_th,
-    n,             # number density [m^-3]
-    particle_m,    # mass [amu]
-    particle_q,    # charge [|e|]
-    phi = 1e-12,   # small imaginary shift
-    nPoints = 1e3,
-    inner_range = 0.3,
-    inner_frac = 0.8,
-):
-    """
-    Skolar-style susceptibility (identical math/signs to your original),
-    accelerated by caching geometry per (u_axis, xi, phi).
-    """
-    import torch
-
-    # --- dtypes/devices ---
-    dev = u_axis.device
-    f64, c64 = torch.float64, torch.complex128
-
-    # Promote reals to float64 for stable kernels
-    u_axis = u_axis.to(dtype=f64, device=dev)
-    xi     = xi.to(dtype=f64, device=dev)
-    f      = f.to(dtype=f64, device=dev)
-
-    # --- geometry cache owned by this function ---
-    if not hasattr(chi, "_geom_cache"):
-        chi._geom_cache = {}
-
-    key = (
-        int(u_axis.data_ptr()), u_axis.numel(),
-        int(xi.data_ptr()), xi.numel(),
-        float(phi),
-        str(dev),
-    )
-
-    cache = chi._geom_cache.get(key)
-    if cache is None:
-        # Cell edges and widths
-        uL = u_axis[:-1]                        # (M,)
-        uR = u_axis[1:]                         # (M,)
-        dU = (uR - uL)                          # (M,)
-
-        # Broadcast to (B,M)
-        uL_b = uL.unsqueeze(0).to(c64)          # (1,M)
-        uR_b = uR.unsqueeze(0).to(c64)          # (1,M)
-        zeta = (xi + 1j*phi).unsqueeze(1).to(c64)  # (B,1)
-
-        # Denominators
-        tR = uR_b - zeta                        # (B,M)
-        tL = uL_b - zeta                        # (B,M)
-
-        # Geometry terms (exactly your original formula)
-        L = torch.log(tR) - torch.log(tL)                       # (B,M)
-        Q = dU.unsqueeze(0).to(c64) / (tR * tL)                 # (B,M)
-
-        cache = {
-            "uL": uL,          # (M,) float64
-            "dU": dU,          # (M,) float64
-            "L":  L,           # (B,M) complex128
-            "Q":  Q,           # (B,M) complex128
-            "xi": xi,          # (B,) float64
-        }
-        chi._geom_cache[key] = cache
-    else:
-        # Ensure tensors live on current device
-        if str(cache["L"].device) != str(dev):
-            cache = {
-                "uL": cache["uL"].to(f64, dev),
-                "dU": cache["dU"].to(f64, dev),
-                "L":  cache["L"].to(c64, dev),
-                "Q":  cache["Q"].to(c64, dev),
-                "xi": cache["xi"].to(f64, dev),
-            }
-            chi._geom_cache[key] = cache
-
-    # Unpack cached geometry
-    uL = cache["uL"]        # (M,)
-    dU = cache["dU"]        # (M,)
-    L  = cache["L"]         # (B,M)
-    Q  = cache["Q"]         # (B,M)
-    xi = cache["xi"]        # (B,)
-
-    # --- data-dependent part (same math as original) ---
-    fL = f[:-1]
-    fR = f[1:]
-    a  = (fR - fL) / dU                     # (M,)
-    b  = fL - a * uL                        # (M,)
-
-    aB  = a.unsqueeze(0).to(c64)            # (1,M)
-    bB  = b.unsqueeze(0).to(c64)            # (1,M)
-    xiB = xi.unsqueeze(1).to(c64)           # (B,1)
-
-    # I2 = Σ_j [ a_j * log(tR/tL)  -  (a_j*xi + b_j) * (uR-uL)/(tR*tL) ]
-    I2 = (aB * L - (aB * xiB + bB) * Q).sum(dim=1)   # (B,)
-
-    # --- identical coefficient & sign as original ---
-    m_SI  = particle_m * 1.6605e-27
-    q_SI  = particle_q * 1.6022e-19
-    eps0  = 8.8541878e-12
-
-    m_SI_t = torch.tensor(m_SI, dtype=f64, device=dev)
-    q_SI_t = torch.tensor(q_SI, dtype=f64, device=dev)
-    v_th_t = torch.tensor(v_th, dtype=f64, device=dev)
-    k_t    = torch.tensor(k, dtype=f64, device=dev)
-    n_t    = torch.tensor(n, dtype=f64, device=dev)
-
-    wpl2 = n_t * (q_SI_t*q_SI_t) / (m_SI_t * eps0)
-    coefficient = wpl2 / (k_t*k_t) / (torch.sqrt(torch.tensor(2.0, dtype=f64, device=dev)) * v_th_t)
-
-    return coefficient.to(c64) * (-I2)
-
-
-
-
-
-
-    
-
-    
-  
 
 
     
