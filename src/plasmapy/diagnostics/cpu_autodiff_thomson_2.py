@@ -195,7 +195,7 @@ def chi_working(
 
 import torch
 
-def chi(
+def chi_faster_working(
     f, 
     derivative_matrices,  # ignored (Skolar method)
     u_axis,
@@ -254,7 +254,7 @@ def chi(
 
 
 
-def chi_faster(
+def chi(
     f, 
     derivative_matrices,  # ignored (Skolar method)
     u_axis,
