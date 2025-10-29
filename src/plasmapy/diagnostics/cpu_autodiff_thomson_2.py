@@ -271,23 +271,22 @@ def chi(
 ):
     """
     Skolar-style susceptibility (identical math/signs to your original),
-    but faster via cached geometry terms per (u_axis, xi, phi).
+    accelerated by caching geometry per (u_axis, xi, phi).
     """
     import torch
 
-    # ---- dtypes/devices ----
+    # --- dtypes/devices ---
     dev = u_axis.device
     f64, c64 = torch.float64, torch.complex128
 
-    # ---- ensure float64 for real inputs used in geometry/data terms ----
+    # Promote reals to float64 for stable kernels
     u_axis = u_axis.to(dtype=f64, device=dev)
     xi     = xi.to(dtype=f64, device=dev)
     f      = f.to(dtype=f64, device=dev)
 
-    # ---- cache (per process) for geometry that depends only on u_axis, xi, phi ----
-    # Key off data_ptr + sizes + device + phi so we can reuse across optimizer iterations.
-    if not hasattr(chi_faster, "_geom_cache"):
-        chi_faster._geom_cache = {}
+    # --- geometry cache owned by this function ---
+    if not hasattr(chi, "_geom_cache"):
+        chi._geom_cache = {}
 
     key = (
         int(u_axis.data_ptr()), u_axis.numel(),
@@ -296,9 +295,9 @@ def chi(
         str(dev),
     )
 
-    cache = chi_faster._geom_cache.get(key)
+    cache = chi._geom_cache.get(key)
     if cache is None:
-        # --- compute geometry once ---
+        # Cell edges and widths
         uL = u_axis[:-1]                        # (M,)
         uR = u_axis[1:]                         # (M,)
         dU = (uR - uL)                          # (M,)
@@ -308,10 +307,11 @@ def chi(
         uR_b = uR.unsqueeze(0).to(c64)          # (1,M)
         zeta = (xi + 1j*phi).unsqueeze(1).to(c64)  # (B,1)
 
+        # Denominators
         tR = uR_b - zeta                        # (B,M)
         tL = uL_b - zeta                        # (B,M)
 
-        # Geometry terms matching your original formula exactly:
+        # Geometry terms (exactly your original formula)
         L = torch.log(tR) - torch.log(tL)                       # (B,M)
         Q = dU.unsqueeze(0).to(c64) / (tR * tL)                 # (B,M)
 
@@ -322,9 +322,9 @@ def chi(
             "Q":  Q,           # (B,M) complex128
             "xi": xi,          # (B,) float64
         }
-        chi_faster._geom_cache[key] = cache
+        chi._geom_cache[key] = cache
     else:
-        # move to current device if needed (e.g., first computed on CPU then moved to GPU)
+        # Ensure tensors live on current device
         if str(cache["L"].device) != str(dev):
             cache = {
                 "uL": cache["uL"].to(f64, dev),
@@ -333,15 +333,16 @@ def chi(
                 "Q":  cache["Q"].to(c64, dev),
                 "xi": cache["xi"].to(f64, dev),
             }
-            chi_faster._geom_cache[key] = cache
+            chi._geom_cache[key] = cache
 
+    # Unpack cached geometry
     uL = cache["uL"]        # (M,)
     dU = cache["dU"]        # (M,)
     L  = cache["L"]         # (B,M)
     Q  = cache["Q"]         # (B,M)
     xi = cache["xi"]        # (B,)
 
-    # ---- per-call data-dependent slopes/intercepts (unchanged math) ----
+    # --- data-dependent part (same math as original) ---
     fL = f[:-1]
     fR = f[1:]
     a  = (fR - fL) / dU                     # (M,)
@@ -351,9 +352,7 @@ def chi(
     bB  = b.unsqueeze(0).to(c64)            # (1,M)
     xiB = xi.unsqueeze(1).to(c64)           # (B,1)
 
-    # --- analytic I2 (identical to your original) ---
-    # term1 = a * log(tR/tL)  == aB * L
-    # term2 = -(a*xi + b) * (uR-uL) / (tR*tL) == -(aB*xiB + bB) * Q
+    # I2 = Σ_j [ a_j * log(tR/tL)  -  (a_j*xi + b_j) * (uR-uL)/(tR*tL) ]
     I2 = (aB * L - (aB * xiB + bB) * Q).sum(dim=1)   # (B,)
 
     # --- identical coefficient & sign as original ---
@@ -371,6 +370,7 @@ def chi(
     coefficient = wpl2 / (k_t*k_t) / (torch.sqrt(torch.tensor(2.0, dtype=f64, device=dev)) * v_th_t)
 
     return coefficient.to(c64) * (-I2)
+
 
 
 
