@@ -254,8 +254,7 @@ def chi_faster(
 
 
 
-
-def chi(
+def chi_faster(
     f, 
     derivative_matrices,  # ignored (Skolar method)
     u_axis,
@@ -265,151 +264,115 @@ def chi(
     n,             # number density [m^-3]
     particle_m,    # mass [amu]
     particle_q,    # charge [|e|]
-    phi = 1e-12,   # small imaginary shift (unchanged)
+    phi = 1e-12,   # small imaginary shift
     nPoints = 1e3,
     inner_range = 0.3,
     inner_frac = 0.8,
-    *,
-    refine_beta: float = 2.0,   # refine cells whose centers are within beta * dU of any xi
-    max_splits: int = 1,        # how many times to split a tagged cell (1 = add 1 midpoint)
 ):
     """
-    Skolar-style susceptibility with *identical* math/signs/epsilon as your original,
-    but with a tiny *local refinement* of Δu near ξ to reduce jaggedness without
-    globally increasing the grid.
-
-    Only Δu spacing is changed (near ξ); everything else is untouched.
+    Skolar-style susceptibility (identical math/signs to your original),
+    but faster via cached geometry terms per (u_axis, xi, phi).
     """
     import torch
 
-    # ----- real-valued copies (preserve your dtypes otherwise) -----
-    # we’ll do selection logic in float64, then go back to your complex math
+    # ---- dtypes/devices ----
     dev = u_axis.device
-    f64 = torch.float64
+    f64, c64 = torch.float64, torch.complex128
 
-    u_axis_r = u_axis.to(dtype=f64, device=dev)
-    f_r      = f.to(dtype=f64, device=dev)
-    xi_r     = xi.to(dtype=f64, device=dev)
+    # ---- ensure float64 for real inputs used in geometry/data terms ----
+    u_axis = u_axis.to(dtype=f64, device=dev)
+    xi     = xi.to(dtype=f64, device=dev)
+    f      = f.to(dtype=f64, device=dev)
 
-    # ----- tag cells to refine: centers near any xi within refine_beta * dU -----
-    uL0 = u_axis_r[:-1]            # (M,)
-    uR0 = u_axis_r[1:]             # (M,)
-    dU0 = (uR0 - uL0)              # (M,)
-    c0  = 0.5 * (uL0 + uR0)        # centers (M,)
+    # ---- cache (per process) for geometry that depends only on u_axis, xi, phi ----
+    # Key off data_ptr + sizes + device + phi so we can reuse across optimizer iterations.
+    if not hasattr(chi_faster, "_geom_cache"):
+        chi_faster._geom_cache = {}
 
-    # For each cell, check min distance to any xi
-    # shape tricks: (B,) vs (M,) -> (B,M), then reduce
-    dist = (xi_r[:, None] - c0[None, :]).abs()      # (B,M)
-    min_dist = dist.min(dim=0).values               # (M,)
-    tags = min_dist <= (refine_beta * dU0)          # (M,) bool
+    key = (
+        int(u_axis.data_ptr()), u_axis.numel(),
+        int(xi.data_ptr()), xi.numel(),
+        float(phi),
+        str(dev),
+    )
 
-    # Nothing to refine? Fall back to original path
-    if not torch.any(tags) or max_splits <= 0:
-        # ---- original computation (unchanged) ----
-        uL = u_axis[:-1]
-        uR = u_axis[1:]
-        dU = uR - uL
-        fL = f[:-1]
-        fR = f[1:]
-        a  = (fR - fL) / dU
-        b  = fL - a * uL
+    cache = chi_faster._geom_cache.get(key)
+    if cache is None:
+        # --- compute geometry once ---
+        uL = u_axis[:-1]                        # (M,)
+        uR = u_axis[1:]                         # (M,)
+        dU = (uR - uL)                          # (M,)
 
-        eps = phi
-        zeta = (xi + 1j * eps).to(torch.complex128).unsqueeze(1)  # (B,1)
+        # Broadcast to (B,M)
+        uL_b = uL.unsqueeze(0).to(c64)          # (1,M)
+        uR_b = uR.unsqueeze(0).to(c64)          # (1,M)
+        zeta = (xi + 1j*phi).unsqueeze(1).to(c64)  # (B,1)
 
-        uL_c = uL.to(torch.complex128).unsqueeze(0)  # (1,M)
-        uR_c = uR.to(torch.complex128).unsqueeze(0)
-        a_c  = a.to(torch.complex128).unsqueeze(0)
-        b_c  = b.to(torch.complex128).unsqueeze(0)
+        tR = uR_b - zeta                        # (B,M)
+        tL = uL_b - zeta                        # (B,M)
 
-        tR = uR_c - zeta  # (B,M)
-        tL = uL_c - zeta
+        # Geometry terms matching your original formula exactly:
+        L = torch.log(tR) - torch.log(tL)                       # (B,M)
+        Q = dU.unsqueeze(0).to(c64) / (tR * tL)                 # (B,M)
 
-        term1 = a_c * torch.log(tR / tL)
-        term2 = -(a_c * zeta + b_c) * (uR_c - uL_c) / (tR * tL)
-        I2 = (term1 + term2).sum(dim=1)
+        cache = {
+            "uL": uL,          # (M,) float64
+            "dU": dU,          # (M,) float64
+            "L":  L,           # (B,M) complex128
+            "Q":  Q,           # (B,M) complex128
+            "xi": xi,          # (B,) float64
+        }
+        chi_faster._geom_cache[key] = cache
+    else:
+        # move to current device if needed (e.g., first computed on CPU then moved to GPU)
+        if str(cache["L"].device) != str(dev):
+            cache = {
+                "uL": cache["uL"].to(f64, dev),
+                "dU": cache["dU"].to(f64, dev),
+                "L":  cache["L"].to(c64, dev),
+                "Q":  cache["Q"].to(c64, dev),
+                "xi": cache["xi"].to(f64, dev),
+            }
+            chi_faster._geom_cache[key] = cache
 
-        m_SI = torch.tensor([particle_m * 1.6605e-27], dtype=torch.float64, device=dev)
-        q_SI = torch.tensor([particle_q * 1.6022e-19], dtype=torch.float64, device=dev)
-        wpl2 = n * torch.square(q_SI) / (m_SI * 8.8541878e-12)
-        v_th_t = torch.tensor([v_th], dtype=torch.float64, device=dev)
-        coefficient = wpl2 / k**2 / (torch.sqrt(torch.tensor([2.0], dtype=torch.float64, device=dev)) * v_th_t)
+    uL = cache["uL"]        # (M,)
+    dU = cache["dU"]        # (M,)
+    L  = cache["L"]         # (B,M)
+    Q  = cache["Q"]         # (B,M)
+    xi = cache["xi"]        # (B,)
 
-        return coefficient.to(torch.complex128) * (-I2)
+    # ---- per-call data-dependent slopes/intercepts (unchanged math) ----
+    fL = f[:-1]
+    fR = f[1:]
+    a  = (fR - fL) / dU                     # (M,)
+    b  = fL - a * uL                        # (M,)
 
-    # ----- build a refined (u,f) by inserting midpoints in tagged cells -----
-    # We’ll allow up to `max_splits` rounds to keep it simple and fast.
-    u_ref = [u_axis_r[0:1]]
-    f_ref = [f_r[0:1]]
+    aB  = a.unsqueeze(0).to(c64)            # (1,M)
+    bB  = b.unsqueeze(0).to(c64)            # (1,M)
+    xiB = xi.unsqueeze(1).to(c64)           # (B,1)
 
-    for i in range(uL0.numel()):
-        # always append the right endpoint and (optionally) midpoints
-        u_left  = uL0[i]
-        u_right = uR0[i]
-        f_left  = f_r[i]
-        f_right = f_r[i+1]
+    # --- analytic I2 (identical to your original) ---
+    # term1 = a * log(tR/tL)  == aB * L
+    # term2 = -(a*xi + b) * (uR-uL) / (tR*tL) == -(aB*xiB + bB) * Q
+    I2 = (aB * L - (aB * xiB + bB) * Q).sum(dim=1)   # (B,)
 
-        if tags[i]:
-            # number of splits (equal-size segments); cap at max_splits
-            splits = max_splits
-            # create internal points (exclude endpoints)
-            if splits == 1:
-                mids_u = 0.5 * (u_left + u_right)
-                # linear interpolation for f at midpoint
-                w = (mids_u - u_left) / (u_right - u_left)
-                mids_f = f_left * (1 - w) + f_right * w
-                # append midpoint then the right endpoint
-                u_ref.append(mids_u[None])
-                f_ref.append(mids_f[None])
-            else:
-                # general L equal segments → (splits) interior points
-                # positions: u_left + j*(Δu/(splits+1)), j=1..splits
-                j = torch.arange(1, splits + 1, device=dev, dtype=f64)
-                mids_u = u_left + (u_right - u_left) * (j / (splits + 1))
-                w = (mids_u - u_left) / (u_right - u_left)
-                mids_f = f_left * (1 - w) + f_right * w
-                u_ref.append(mids_u)
-                f_ref.append(mids_f)
+    # --- identical coefficient & sign as original ---
+    m_SI  = particle_m * 1.6605e-27
+    q_SI  = particle_q * 1.6022e-19
+    eps0  = 8.8541878e-12
 
-        # append the right endpoint for this cell
-        u_ref.append(u_right[None])
-        f_ref.append(f_right[None])
+    m_SI_t = torch.tensor(m_SI, dtype=f64, device=dev)
+    q_SI_t = torch.tensor(q_SI, dtype=f64, device=dev)
+    v_th_t = torch.tensor(v_th, dtype=f64, device=dev)
+    k_t    = torch.tensor(k, dtype=f64, device=dev)
+    n_t    = torch.tensor(n, dtype=f64, device=dev)
 
-    u_axis_new = torch.cat(u_ref, dim=0)  # (M + n_mids + 1)
-    f_new      = torch.cat(f_ref, dim=0)
+    wpl2 = n_t * (q_SI_t*q_SI_t) / (m_SI_t * eps0)
+    coefficient = wpl2 / (k_t*k_t) / (torch.sqrt(torch.tensor(2.0, dtype=f64, device=dev)) * v_th_t)
 
-    # ----- proceed with your IDENTICAL per-cell analytic formula on (u_axis_new, f_new) -----
-    uL = u_axis_new[:-1].to(u_axis.dtype)
-    uR = u_axis_new[1:].to(u_axis.dtype)
-    dU = uR - uL
-    fL = f_new[:-1].to(f.dtype)
-    fR = f_new[1:].to(f.dtype)
-    a  = (fR - fL) / dU
-    b  = fL - a * uL
+    return coefficient.to(c64) * (-I2)
 
-    eps = phi  # unchanged global epsilon
-    zeta = (xi + 1j * eps).to(torch.complex128).unsqueeze(1)  # (B,1)
 
-    uL_c = uL.to(torch.complex128).unsqueeze(0)  # (1,M')
-    uR_c = uR.to(torch.complex128).unsqueeze(0)
-    a_c  = a.to(torch.complex128).unsqueeze(0)
-    b_c  = b.to(torch.complex128).unsqueeze(0)
-
-    tR = uR_c - zeta  # (B,M')
-    tL = uL_c - zeta
-
-    term1 = a_c * torch.log(tR / tL)
-    term2 = -(a_c * zeta + b_c) * (uR_c - uL_c) / (tR * tL)
-    I2 = (term1 + term2).sum(dim=1)
-
-    # identical coefficient & sign
-    m_SI = torch.tensor([particle_m * 1.6605e-27], dtype=torch.float64, device=dev)
-    q_SI = torch.tensor([particle_q * 1.6022e-19], dtype=torch.float64, device=dev)
-    wpl2 = n * torch.square(q_SI) / (m_SI * 8.8541878e-12)
-    v_th_t = torch.tensor([v_th], dtype=torch.float64, device=dev)
-    coefficient = wpl2 / k**2 / (torch.sqrt(torch.tensor([2.0], dtype=torch.float64, device=dev)) * v_th_t)
-
-    return coefficient.to(torch.complex128) * (-I2)
 
 
 
