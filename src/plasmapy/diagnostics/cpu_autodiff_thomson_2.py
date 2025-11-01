@@ -223,9 +223,33 @@ def chi(
     a = (fR - fL) / dU
     b = fL - a * uL
 
+
+
+
+
+# Small tweak for reduced graininess
+    
+
     # --- complex vars ---
-    eps = phi
-    zeta = (xi + 1j * eps).to(torch.complex128).unsqueeze(1)  # (B,1)
+    #eps = phi (old)
+    #zeta = (xi + 1j * eps).to(torch.complex128).unsqueeze(1)  # (B,1)   (old)
+    # --- complex vars ---  # adaptive ε tied to mesh spacing
+    min_dU = torch.min(dU)
+    eps = torch.clamp_min(
+        torch.as_tensor(phi, dtype=u_axis.dtype, device=u_axis.device),
+        0.2 * min_dU,   # try 0.1–0.3; start with 0.2
+    )
+    zeta = (xi.to(torch.float64) + 1j * eps.to(torch.float64)).to(torch.complex128).unsqueeze(1)
+
+
+
+
+
+# Everything south of here is good
+
+
+
+    
 
     uL_c = uL.to(torch.complex128).unsqueeze(0)  # (1,M)
     uR_c = uR.to(torch.complex128).unsqueeze(0)
@@ -472,6 +496,17 @@ def fast_spectral_density_arbdist(
         Skw = torch.mul(Skw, bools)
 
     # Normalize result to have integral 1
+    #--- Good Above
+
+    
+    # Tiny PSF-like smoothing to suppress grid aliasing (keeps areas, barely touches EPW)
+    if Skw.numel() >= 5: #another attempt at normialzation
+        Skw = F.avg_pool1d(Skw[None, None, :], kernel_size=3, stride=1, padding=1)[0, 0]
+
+
+
+
+    #----Good Below
     Skw = Skw / torch.trapz(Skw, wavelengths)
 
     if return_chi:
